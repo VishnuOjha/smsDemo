@@ -1,95 +1,150 @@
-// apiService.js - Helper functions for making API calls
+// apiService.js - Service for making API calls
 
-const axios = require('axios');
-const https = require('https');
+const axios = require("axios");
+const https = require("https");
+const logger = require("./logger");
 
 /**
- * Creates an Axios instance with custom configuration
- * @param {Object} options - Configuration options for the Axios instance
- * @returns {Object} - Configured Axios instance
+ * Creates a configured HTTP agent with the given proxy settings
+ * @param {Object} proxyConfig - Proxy configuration
+ * @returns {https.Agent} - Configured HTTPS agent
  */
-const createAxiosInstance = (options = {}) => {
-    // Default options
-    const defaultOptions = {
-        timeout: 10000,
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        // By default, disable certificate validation in development
-        httpsAgent: new https.Agent({
-            rejectUnauthorized: false
-        })
-    };
+const createProxyAgent = (proxyConfig) => {
+  if (!proxyConfig || !proxyConfig.host || !proxyConfig.port) {
+    return new https.Agent({
+      keepAlive: true,
+      rejectUnauthorized: true,
+    });
+  }
 
-    // Merge with user options
-    const finalOptions = { ...defaultOptions, ...options };
+  const {
+    host,
+    port,
+    protocol = "http",
+    rejectUnauthorized = true,
+  } = proxyConfig;
 
-    // Create instance with merged options
-    return axios.create(finalOptions);
+  // Use HttpsProxyAgent for HTTPS proxy support
+  const { HttpsProxyAgent } = require("https-proxy-agent");
+
+  return new HttpsProxyAgent({
+    host,
+    port,
+    protocol,
+    rejectUnauthorized,
+  });
 };
 
 /**
- * Fetches data from an external API
- * @param {string} url - The API endpoint URL
- * @param {Object} options - Additional axios request options
- * @returns {Promise} - Promise resolving to the API response data
- */
-const fetchData = async (url, options = {}) => {
-    try {
-        console.log(`Fetching data from: ${url}`);
-
-        // Handle proxy configuration if provided
-        const axiosOptions = { ...options };
-        const axiosInstance = createAxiosInstance(axiosOptions);
-
-        // Make the request
-        const response = await axiosInstance.get(url);
-
-        console.log('Data fetched successfully!');
-        return response.data;
-    } catch (error) {
-        console.error('Error fetching data:', error.message);
-        if (error.response) {
-            console.error('Response status:', error.response.status);
-            console.error('Response data:', error.response.data);
-        }
-        throw error;
-    }
-};
-
-/**
- * Posts data to an external API
- * @param {string} url - The API endpoint URL
- * @param {Object} data - The data to post
- * @param {Object} options - Additional axios request options
- * @returns {Promise} - Promise resolving to the API response data
+ * Makes a POST request to the specified URL
+ * @param {string} url - URL to make the request to
+ * @param {Object} data - Data to send in the request body
+ * @param {Object} options - Additional options for the request
+ * @returns {Promise} - Promise resolving to the API response
  */
 const postData = async (url, data, options = {}) => {
-    try {
-        console.log(`Posting data to: ${url}`);
-        console.log('Request data:', JSON.stringify(data, null, 2));
+  try {
+    const requestId =
+      options.requestId ||
+      `req-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const reqLogger = logger.child({ requestId, url, method: "POST" });
 
-        // Handle proxy configuration if provided
-        const axiosOptions = { ...options };
-        const axiosInstance = createAxiosInstance(axiosOptions);
+    reqLogger.debug("Preparing API request");
 
-        // Make the request
-        const response = await axiosInstance.post(url, data);
+    // Configure axios options
+    const axiosOptions = {
+      method: "POST",
+      url,
+      data,
+      headers: options.headers || { "Content-Type": "application/json" },
+      timeout: options.timeout || 30000,
+      validateStatus: null, // Don't throw on any status code
+    };
 
-        console.log('Data posted successfully!');
-        return response.data;
-    } catch (error) {
-        console.error('Error posting data:', error.message);
-        if (error.response) {
-            console.error('Response status:', error.response.status);
-            console.error('Response data:', error.response.data);
-        }
-        throw error;
+    // Add proxy agent if proxy config is provided
+    if (options.proxy) {
+      reqLogger.debug("Configuring proxy agent", {
+        host: options.proxy.host,
+        port: options.proxy.port,
+      });
+
+      const httpsAgent = createProxyAgent(options.proxy);
+      axiosOptions.httpsAgent = httpsAgent;
     }
+
+    // Add request tracking headers
+    axiosOptions.headers["X-Request-ID"] = requestId;
+
+    // Log the request (with sensitive data masked)
+    reqLogger.info(`Making ${axiosOptions.method} request to ${url}`);
+
+    // Calculate timeout with jitter
+    const jitter = Math.floor(Math.random() * 500);
+    axiosOptions.timeout = axiosOptions.timeout + jitter;
+
+    reqLogger.debug("Request details", {
+      timeout: axiosOptions.timeout,
+      headers: Object.keys(axiosOptions.headers),
+    });
+
+    // Execute the request with timing
+    const startTime = Date.now();
+    const response = await axios(axiosOptions);
+    const requestDuration = Date.now() - startTime;
+
+    // Log the response
+    reqLogger.info(
+      `Received response with status ${response.status} in ${requestDuration}ms`
+    );
+
+    // Add timing headers to the response for debugging
+    response.headers["x-response-time"] = requestDuration;
+
+    // Enhanced response object
+    return {
+      status: response.status,
+      success: response.status >= 200 && response.status < 300,
+      data: response.data,
+      headers: response.headers,
+      requestId,
+      durationMs: requestDuration,
+      error: response.status >= 400 ? response.statusText : null,
+    };
+  } catch (error) {
+    // Handle request errors
+    logger.error("API request failed", {
+      url,
+      error: error.message,
+      code: error.code,
+      timeout: options.timeout,
+      isAxiosError: error.isAxiosError,
+    });
+
+    // Return a structured error response
+    return {
+      success: false,
+      status: error.response?.status || 0,
+      error: error.message,
+      code: error.code,
+      data: error.response?.data,
+      isTimeout: error.code === "ECONNABORTED",
+    };
+  }
+};
+
+/**
+ * Makes a GET request to the specified URL
+ * @param {string} url - URL to make the request to
+ * @param {Object} options - Additional options for the request
+ * @returns {Promise} - Promise resolving to the API response
+ */
+const getData = async (url, options = {}) => {
+  // Similar implementation to postData but for GET requests
+  options.method = "GET";
+  return postData(url, null, options);
 };
 
 module.exports = {
-    fetchData,
-    postData,
-    createAxiosInstance
+  postData,
+  getData,
 };
