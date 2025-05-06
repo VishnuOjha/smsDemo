@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
 const morgan = require('morgan');
-const { fetchData } = require('./apiService');
+const { getData } = require('./apiService');
 const { sendOTP } = require('./otpService');
 const { sendSmsOtp, generateOTP } = require('./smsService');
 const { callAPIWithStaticDataAndProperSSL } = require('./smsServiceSSL');
@@ -39,7 +39,7 @@ app.get('/api/data', (req, res) => {
 // Route that fetches external API data and returns it
 app.get('/api/users', async (req, res) => {
     try {
-        const users = await fetchData('https://api.restful-api.dev/objects');
+        const users = await getData('https://api.restful-api.dev/objects');
         // Log data to console
         console.log('Users fetched successfully:');
         console.log(users.map(user => ({ id: user.id, name: user.name })));
