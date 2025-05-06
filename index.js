@@ -5,6 +5,9 @@ const bodyParser = require('body-parser');
 const morgan = require('morgan');
 const { fetchData } = require('./apiService');
 const { sendOTP } = require('./otpService');
+const { sendSmsOtp, generateOTP } = require('./smsService');
+const { callAPIWithStaticDataAndProperSSL } = require('./smsServiceSSL');
+const axios = require('axios');
 
 // Initialize Express app
 const app = express();
@@ -88,6 +91,85 @@ app.get('/api/send-otp', async (req, res) => {
         });
     }
 });
+
+app.get('/api/send-govt-sms', async (req, res) => {
+    try {
+        // const { mobileNumber } = req.body;
+        const mobileNumber = "7984085918";
+
+        if (!mobileNumber) {
+            return res.status(400).json({
+                success: false,
+                message: 'Mobile number is required'
+            });
+        }
+
+        console.log(`Received request to send Government SMS OTP to: ${mobileNumber}`);
+
+        // Generate a 4-digit OTP
+        const otp = generateOTP(4);
+
+        // Send the OTP using the Government SMS Gateway
+        const result = await sendSmsOtp(mobileNumber, otp);
+        console.log('Government SMS OTP send result:', result);
+
+        if (result.success) {
+            res.json({
+                success: true,
+                message: 'OTP sent successfully via Government SMS Gateway',
+                otp: otp  // In production, don't return the OTP to the client
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: result.message || 'Failed to send OTP'
+            });
+        }
+    } catch (error) {
+        console.error('Error in /api/send-govt-sms route:', error.message);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to send Government SMS OTP'
+        });
+    }
+});
+
+app.get('/api/send-sms-ssl', callAPIWithStaticDataAndProperSSL);
+
+
+
+
+async function testProxy() {
+    try {
+        const response = await axios.get('https://amritsarovar.gov.in/EmailSmsServer/api/sendotp', {
+            proxy: {
+                host: '10.194.81.45',
+                port: 8080,
+                protocol: 'http'
+            },
+            timeout: 20000
+        });
+        console.log('Proxy is working:', response.data);
+    } catch (error) {
+        console.error('Proxy test failed:', error.message);
+    }
+}
+
+testProxy();
+
+
+async function testDirectConnection() {
+    try {
+        const response = await axios.get('https://amritsarovar.gov.in/EmailSmsServer/api/sendotp', {
+            timeout: 5000
+        });
+        console.log('Direct connection working:', response.data);
+    } catch (error) {
+        console.error('Direct connection failed:', error.message);
+    }
+}
+testDirectConnection();
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {
