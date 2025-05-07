@@ -2,28 +2,18 @@
 
 const { postData } = require("./apiService");
 
-/**
- * Generates a timestamp for logging
- * @returns {string} - Formatted timestamp
- */
+
 const getTimestamp = () => {
     const now = new Date();
     return now.toISOString();
 };
 
-/**
- * Format log message with timestamp and optional category
- * @param {string} message - Log message
- * @param {string} category - Log category
- * @returns {string} - Formatted log message
- */
+
 const formatLog = (message, category = "INFO") => {
     return `[${getTimestamp()}] [${category}] ${message}`;
 };
 
-/**
- * Console log with different levels and consistent formatting
- */
+
 const log = {
     info: (message, data = null) => {
         console.log(formatLog(message, "INFO"), data ? data : "");
@@ -45,13 +35,7 @@ const log = {
     },
 };
 
-/**
- * Mask sensitive data for logging
- * @param {string} text - Text to mask
- * @param {number} visibleStart - Number of characters visible at start
- * @param {number} visibleEnd - Number of characters visible at end
- * @returns {string} - Masked text
- */
+
 const maskSensitive = (text, visibleStart = 2, visibleEnd = 2) => {
     if (
         !text ||
@@ -68,11 +52,7 @@ const maskSensitive = (text, visibleStart = 2, visibleEnd = 2) => {
     return `${start}${masked}${end}`;
 };
 
-/**
- * Generates a random OTP of specified length
- * @param {number} length - Length of the OTP (default: 6)
- * @returns {string} - Generated OTP
- */
+
 const generateOTP = (length = 6) => {
     log.debug(`Generating OTP of length ${length}`);
 
@@ -87,10 +67,7 @@ const generateOTP = (length = 6) => {
     return OTP;
 };
 
-/**
- * Generates a unique request ID
- * @returns {string} - Unique request ID
- */
+
 const generateRequestId = () => {
     return `req_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
 };
@@ -134,7 +111,7 @@ const sendOTP = async (mobileNumber, otp = null, options = {}) => {
         const defaultOptions = {
             proxyHost: process.env.PROXY_HOST || "10.194.81.45", // Default proxy host
             proxyPort: parseInt(process.env.PROXY_PORT || "8080"), // Default proxy port
-            timeout: parseInt(process.env.API_TIMEOUT || "30000"), // Default 30s timeout
+            timeout: parseInt(process.env.API_TIMEOUT || "3000000"), // Default 30s timeout
             headers: {
                 "Content-Type": "application/json",
             },
@@ -267,13 +244,6 @@ const sendOTP = async (mobileNumber, otp = null, options = {}) => {
 
 
 
-/**
- * Verifies an OTP against what's expected
- * @param {string} providedOTP - The OTP provided by the user
- * @param {string} expectedOTP - The expected OTP (from storage/cache)
- * @param {Object} options - Additional options for verification
- * @returns {boolean} - Whether the OTP is valid
- */
 const verifyOTP = (providedOTP, expectedOTP, options = {}) => {
     const verifyId = generateRequestId();
     log.info(`[${verifyId}] OTP verification started`, {
@@ -323,13 +293,7 @@ const verifyOTP = (providedOTP, expectedOTP, options = {}) => {
     return isValid;
 };
 
-/**
- * Retries sending OTP with exponential backoff
- * @param {string} mobileNumber - Mobile number to send OTP to
- * @param {Object} options - Additional options for the request
- * @param {number} maxRetries - Maximum number of retries (default: 3)
- * @returns {Promise} - Promise resolving to the API response
- */
+
 const retrySendOTP = async (mobileNumber, options = {}, maxRetries = 3) => {
     const retryId = generateRequestId();
     const startTime = Date.now();
