@@ -18,13 +18,6 @@ const generateOTP = (length = 6) => {
     return OTP;
 };
 
-/**
- * Sends OTP to the specified mobile number
- * @param {string} mobileNumber - Mobile number to send OTP to
- * @param {string} otp - OTP to be sent (if not provided, generates a random one)
- * @param {Object} options - Additional options for the request
- * @returns {Promise} - Promise resolving to the API response
- */
 const sendOTP = async (mobileNumber, otp = null, options = {}) => {
     try {
         // Validate mobile number
@@ -59,30 +52,71 @@ const sendOTP = async (mobileNumber, otp = null, options = {}) => {
 
         console.log(`Using proxy: ${finalOptions.proxyHost}:${finalOptions.proxyPort}`);
 
-        // Configure proxy for the API call
-        const apiOptions = {
-            timeout: finalOptions.timeout,
-            headers: finalOptions.headers,
-            proxy: {
-                host: finalOptions.proxyHost,
+        // Create a promise that will be resolved with the API response or rejected on timeout
+        const apiPromise = new Promise((resolve, reject) => {
+            // Determine if we should use http or https module
+            const urlObj = new URL('https://amritsarovar.gov.in/EmailSmsServer/api/sendotp');
+            const isHttps = urlObj.protocol === 'https:';
+            const http = isHttps ? require('https') : require('http');
+
+            const requestOptions = {
+                hostname: finalOptions.proxyHost,
                 port: finalOptions.proxyPort,
-                protocol: 'http'
-            }
-        };
+                path: urlObj.href, // Use the full URL in the path when using a proxy
+                method: 'POST',
+                headers: {
+                    ...finalOptions.headers,
+                    // Additional headers for proxy communication
+                    'Host': urlObj.host
+                }
+            };
 
-        // Send OTP request to the server
-        const response = await postData(
-            'https://amritsarovar.gov.in/EmailSmsServer/api/sendotp',
-            requestData,
-            apiOptions
-        );
+            const req = http.request(requestOptions, (res) => {
+                let data = '';
 
-        console.log('OTP send response:', response);
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+
+                res.on('end', () => {
+                    try {
+                        const responseData = JSON.parse(data);
+                        if (res.statusCode >= 200 && res.statusCode < 300) {
+                            resolve(responseData);
+                        } else {
+                            reject(new Error(`HTTP error! Status: ${res.statusCode}`));
+                        }
+                    } catch (error) {
+                        reject(new Error(`Error parsing response: ${error.message}`));
+                    }
+                });
+            });
+
+            req.on('error', (error) => {
+                reject(error);
+            });
+
+            // Write request body
+            req.write(JSON.stringify(requestData));
+            req.end();
+        });
+
+        // Create a timeout promise
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => {
+                reject(new Error(`Request timed out after ${finalOptions.timeout}ms`));
+            }, finalOptions.timeout);
+        });
+
+        // Race the API call against the timeout
+        const responseData = await Promise.race([apiPromise, timeoutPromise]);
+        console.log('OTP send response:', responseData);
+
         return {
             success: true,
             message: 'OTP sent successfully',
             otp: otpToSend, // Return the OTP for verification purposes (in real app, store securely)
-            response: response
+            response: responseData
         };
     } catch (error) {
         console.error('Error sending OTP:', error.message);
@@ -92,6 +126,9 @@ const sendOTP = async (mobileNumber, otp = null, options = {}) => {
         };
     }
 };
+
+
+
 
 /**
  * Verifies an OTP against what's expected
