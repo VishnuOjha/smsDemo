@@ -167,6 +167,7 @@ const sendOTP = async (mobileNumber, otp = null, options = {}) => {
                 protocol: "http",
             },
             requestId: requestId,
+            timeout: 120000
         };
 
         // Additional logging for proxy configuration
